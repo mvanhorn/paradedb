@@ -38,11 +38,43 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: INSTR-4902 install perf and lower paranoid
+      if: always()
+      shell: bash
+      run: |
+        # Install perf if not present; it's in linux-tools on Debian/Ubuntu.
+        if ! command -v perf >/dev/null; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq linux-tools-common linux-tools-generic "linux-tools-$(uname -r)" 2>&1 | tail -3 || true
+          # On AWS Linux/AMI, sometimes fallback:
+          command -v perf || sudo apt-get install -y -qq linux-perf 2>&1 | tail -3 || true
+        fi
+        # Allow perf to count for all processes attached to our postmaster
+        sudo sysctl -w kernel.perf_event_paranoid=-1 || true
+        echo "perf: $(perf --version 2>&1 | head -1) at $(which perf)"
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash
       run: |
         POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
+
+        # INSTR-4902 perf wrapper: attach perf stat to postmaster and all
+        # children (workers) for the duration of this dataset's bench run.
+        POSTMASTER_PID=$(head -1 ~/.pgrx/data-${{ env.pg_version }}/postmaster.pid 2>/dev/null || echo "")
+        PERF_OUT=/tmp/perf-stat-${{ inputs.dataset }}-${{ inputs.size }}${{ inputs.rows }}.txt
+        PERF_PID=""
+        if [ -n "$POSTMASTER_PID" ] && command -v perf >/dev/null; then
+          echo "[INSTR-4902-PERF] postmaster pid=$POSTMASTER_PID, perf output: $PERF_OUT"
+          sudo perf stat --pid=$POSTMASTER_PID \
+              -e task-clock,cycles,instructions,cache-references,cache-misses,LLC-loads,LLC-load-misses,dTLB-loads,dTLB-load-misses,page-faults,context-switches \
+              -o $PERF_OUT \
+              -- sleep 100000 &
+          PERF_PID=$!
+          # Give perf a moment to attach
+          sleep 1
+        else
+          echo "[INSTR-4902-PERF] perf not available or postmaster pid not found, skipping"
+        fi
 
         if [ "${{ inputs.mode }}" = "existing" ]; then
           # Pre-sampled dataset loaded from S3.
@@ -86,6 +118,17 @@ runs:
         fi
 
         echo "ROWS_LABEL=${ROWS_LABEL}" >> $GITHUB_ENV
+
+        # INSTR-4902 perf wrapper: stop perf and dump output
+        if [ -n "$PERF_PID" ]; then
+          sudo kill -INT $PERF_PID 2>/dev/null || true
+          wait $PERF_PID 2>/dev/null || true
+          echo "============================================================"
+          echo "=== [INSTR-4902-PERF] perf stat output for ${{ inputs.dataset }} ${{ inputs.size }}${{ inputs.rows }} ==="
+          echo "============================================================"
+          cat $PERF_OUT 2>&1 || echo "(no perf output)"
+          echo "============================================================"
+        fi
 
     - name: Print the Postgres Logs
       if: failure()
