@@ -58,22 +58,22 @@ runs:
       run: |
         POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
-        # INSTR-4902 perf wrapper: attach perf stat to postmaster and all
-        # children (workers) for the duration of this dataset's bench run.
-        POSTMASTER_PID=$(head -1 ~/.pgrx/data-${{ env.pg_version }}/postmaster.pid 2>/dev/null || echo "")
+        # INSTR-4902 perf wrapper: system-wide perf stat with minimal event
+        # set so we don't multiplex / slow the bench. Captures everything on
+        # the box for the duration; postgres dominates.
         PERF_OUT=/tmp/perf-stat-${{ inputs.dataset }}-${{ inputs.size }}${{ inputs.rows }}.txt
         PERF_PID=""
-        if [ -n "$POSTMASTER_PID" ] && command -v perf >/dev/null; then
-          echo "[INSTR-4902-PERF] postmaster pid=$POSTMASTER_PID, perf output: $PERF_OUT"
-          sudo perf stat --pid=$POSTMASTER_PID \
-              -e task-clock,cycles,instructions,cache-references,cache-misses,LLC-loads,LLC-load-misses,dTLB-loads,dTLB-load-misses,page-faults,context-switches \
+        if command -v perf >/dev/null; then
+          echo "[INSTR-4902-PERF] starting system-wide perf stat: $PERF_OUT"
+          sudo perf stat -a \
+              -e task-clock,cycles,instructions,cache-references,cache-misses \
               -o $PERF_OUT \
               -- sleep 100000 &
           PERF_PID=$!
-          # Give perf a moment to attach
+          # Brief moment for perf to attach
           sleep 1
         else
-          echo "[INSTR-4902-PERF] perf not available or postmaster pid not found, skipping"
+          echo "[INSTR-4902-PERF] perf not available, skipping"
         fi
 
         if [ "${{ inputs.mode }}" = "existing" ]; then
