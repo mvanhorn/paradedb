@@ -382,6 +382,25 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
+    // ---------- INSTR-4902-AGG begin ----------
+    // Sub-phase timing for execute_aggregate. Drop before merge.
+    let __instr_t_start = std::time::Instant::now();
+    let __instr_pid = unsafe { libc::getpid() };
+    let mut __instr_t_prev = __instr_t_start;
+    let mut __instr_mark = |label: &str| {
+        let now = std::time::Instant::now();
+        let cum_us = now.duration_since(__instr_t_start).as_micros();
+        let delta_us = now.duration_since(__instr_t_prev).as_micros();
+        __instr_t_prev = now;
+        pgrx::log!(
+            "[INSTR-4902-AGG] phase={} pid={} cum_us={} delta_us={}",
+            label,
+            __instr_pid,
+            cum_us,
+            delta_us,
+        );
+    };
+    // ---------- INSTR-4902-AGG end ----------
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
@@ -399,12 +418,14 @@ pub fn execute_aggregate(
             NonNull::new(planstate),
             query.needs_tokenizer(),
         )?;
+        __instr_mark("A_reader_open");
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
             .segment_readers()
             .iter()
             .map(|r| (r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
+        __instr_mark("B_segments_collected");
         let process = ParallelAggregation::new(
             index.oid(),
             &query,
@@ -415,6 +436,7 @@ pub fn execute_aggregate(
             segment_ids,
             ambulkdelete_epoch,
         )?;
+        __instr_mark("C_parallel_aggregation_new");
 
         // limit number of workers to the number of segments
         let mut nworkers =
@@ -435,6 +457,7 @@ pub fn execute_aggregate(
             nworkers,
             16384
         ) {
+            __instr_mark(&format!("D_workers_launched_n={}", nworkers));
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
@@ -465,6 +488,7 @@ pub fn execute_aggregate(
                     agg_results.push(Ok(result));
                 }
             }
+            __instr_mark("E_leader_done");
 
             // wait for workers to finish, collecting their intermediate aggregate results
             for (_worker_number, message) in process {
@@ -473,6 +497,7 @@ pub fn execute_aggregate(
 
                 agg_results.push(Ok(worker_results));
             }
+            __instr_mark("F_all_workers_collected");
 
             // have tantivy finalize the intermediate results from each worker
             let mut aggregations: Aggregations = agg_req.try_into()?;
@@ -490,10 +515,12 @@ pub fn execute_aggregate(
                     tokenizer_manager,
                 ),
             );
-            Ok(collector.merge_fruits(agg_results)?.into_final_result(
+            let __r = collector.merge_fruits(agg_results)?.into_final_result(
                 aggregations,
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-            )?)
+            )?;
+            __instr_mark("G_final_merge_done");
+            Ok(__r)
         } else {
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
             let segment_ids = reader
