@@ -249,6 +249,12 @@ jobs:
           sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
           sed -i "s/^#max_parallel_maintenance_workers = .*/max_parallel_maintenance_workers = 8/" postgresql.conf
           sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
+          # INSTR-4902: ensure our pgrx::log!() messages land in the server log
+          # (default log_min_messages=warning would still emit LOG-level, but
+          # we set it explicitly + capture client_min_messages=log too).
+          echo "log_min_messages = log"     >> postgresql.conf
+          echo "log_min_duration_statement = 0" >> postgresql.conf
+          echo "log_destination = 'stderr'" >> postgresql.conf
 
       - name: Restart Postgres
         working-directory: pg_search/
