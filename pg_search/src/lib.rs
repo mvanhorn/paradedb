@@ -124,13 +124,38 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // logged as a WARNING rather than aborting the postmaster — the same
     // failure will resurface on first per-query use of that family, so
     // visibility is preserved.
-    for failure in tokenizers::prewarm_dictionary_tokenizers() {
-        pgrx::warning!(
-            "pg_search: dictionary tokenizer prewarm failed for `{}`; queries \
-             using this family will pay per-query dictionary cold-start and \
-             will hit the same failure on first use. Cause: {}",
-            failure.family,
-            failure.cause
+    {
+        // INSTR-4902: time the prewarm so we can correlate postmaster heap state
+        // with downstream worker / leader timings. Drop before merge.
+        let mut ru0: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru0) };
+        let t0 = std::time::Instant::now();
+        pgrx::log!(
+            "[INSTR-4902] PREWARM START pid={} rss_kb={} minflt={} majflt={}",
+            unsafe { libc::getpid() },
+            ru0.ru_maxrss,
+            ru0.ru_minflt,
+            ru0.ru_majflt,
+        );
+        for failure in tokenizers::prewarm_dictionary_tokenizers() {
+            pgrx::warning!(
+                "pg_search: dictionary tokenizer prewarm failed for `{}`; queries \
+                 using this family will pay per-query dictionary cold-start and \
+                 will hit the same failure on first use. Cause: {}",
+                failure.family,
+                failure.cause
+            );
+        }
+        let elapsed_us = t0.elapsed().as_micros();
+        let mut ru1: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru1) };
+        pgrx::log!(
+            "[INSTR-4902] PREWARM END pid={} elapsed_us={} rss_kb={} minflt_delta={} majflt_delta={}",
+            unsafe { libc::getpid() },
+            elapsed_us,
+            ru1.ru_maxrss,
+            ru1.ru_minflt - ru0.ru_minflt,
+            ru1.ru_majflt - ru0.ru_majflt,
         );
     }
 
