@@ -24,7 +24,6 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
-use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
 use lindera::tokenizer::Tokenizer as LinderaTokenizer;
@@ -32,50 +31,39 @@ use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
-static CMN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
-    ))
-});
-static CMN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+// INSTR-4902 fix: load dicts via mmap-backed file storage instead of the
+// `embedded://` path that pulls bytes through heap allocations.
+fn lindera_dict_for(lang: &str) -> Arc<lindera::dictionary::Dictionary> {
+    let root = crate::lindera_mmap::default_dict_root();
+    crate::lindera_mmap::ensure_materialized(&root)
+        .unwrap_or_else(|e| panic!("lindera mmap materialization failed: {e}"));
+    crate::lindera_mmap::load_mmap(&root, lang)
+        .unwrap_or_else(|e| panic!("lindera mmap load for `{lang}` failed: {e}"))
+}
 
-static JPN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
+fn make_lindera_tokenizer(lang: &str, keep_whitespace: bool) -> Arc<LinderaTokenizer> {
+    let dict_arc = lindera_dict_for(lang);
+    let dict = (*dict_arc).clone();
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
+        lindera::segmenter::Segmenter::new(Mode::Normal, dict, None)
+            .keep_whitespace(keep_whitespace),
     ))
-});
-static JPN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+}
 
-static KOR_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
-    ))
-});
-static KOR_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+static CMN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("cc-cedict", true));
+static CMN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("cc-cedict", false));
+
+static JPN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("ipadic", true));
+static JPN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("ipadic", false));
+
+static KOR_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("ko-dic", true));
+static KOR_TOKENIZER: Lazy<Arc<LinderaTokenizer>> =
+    Lazy::new(|| make_lindera_tokenizer("ko-dic", false));
 
 #[derive(Clone, Default)]
 pub struct LinderaChineseTokenizer {

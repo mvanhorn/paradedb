@@ -92,6 +92,17 @@ runs:
       shell: bash
       run: cat ~/.pgrx/${{ env.pg_version }}.log
 
+    # INSTR-4902: dump instrumentation markers from the PG log into the
+    # workflow log so we can extract attribution data via gh run view.
+    # Skip upload-artifact@v4 — the runs-on.com self-hosted runner doesn't
+    # support it (returns non-JSON from its cache backend, fails the step).
+    - name: INSTR-4902 grep instrumentation markers
+      if: always()
+      shell: bash
+      run: |
+        echo "=== INSTR-4902 markers from pg log ==="
+        grep -E '\[INSTR-4902' ~/.pgrx/${{ env.pg_version }}.log || echo "(no markers found)"
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash

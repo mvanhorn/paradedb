@@ -7,3 +7,11 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
+
+# INSTR-4902 local repro: exclude build artifacts so docker build context
+# stays small. Not needed by the official Dockerfile because CI runs from
+# a clean checkout.
+target/
+**/target/
+.git/
+*.log
