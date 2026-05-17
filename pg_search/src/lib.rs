@@ -125,7 +125,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // residual state in postmaster is small mmap VMAs pointing at file-backed
     // pages — those are inherited cheaply and shared physically.
     let dict_root = tokenizers::lindera_mmap::default_dict_root();
-    if let Err(e) = tokenizers::lindera_mmap::ensure_materialized(&dict_root) {
+    if let Err(e) = tokenizers::lindera_mmap::ensure_materialized_via_subprocess(&dict_root) {
         pgrx::warning!(
             "pg_search: lindera mmap materialization failed at {}: {} — CJK \
              queries will fall back to per-query dictionary cold-start.",

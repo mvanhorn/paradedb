@@ -164,6 +164,86 @@ pub fn ensure_materialized(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Materialize dicts in a forked subprocess so the parent's heap stays
+/// pristine. The child runs `ensure_materialized` and exits via `_exit`
+/// (skipping atexit handlers). All the dict-load heap state is freed back
+/// to the OS when the child exits, so the parent (postmaster) is never
+/// perturbed.
+///
+/// Idempotent: short-circuits if all dicts are already on disk; no fork.
+#[cfg(target_os = "linux")]
+pub fn ensure_materialized_via_subprocess(root: &Path) -> Result<()> {
+    // Fast path — all dicts already materialized, no fork required.
+    let all_ready = DICTS
+        .iter()
+        .all(|(name, _)| dict_is_ready(&root.join(name)));
+    if all_ready {
+        return Ok(());
+    }
+
+    // Make the root dir up front so the child doesn't need to mkdir
+    // (avoids race if the child's first allocation is the path string).
+    fs::create_dir_all(root).with_context(|| format!("mkdir {}", root.display()))?;
+
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        anyhow::bail!(
+            "fork() failed for lindera dict materialization: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    if pid == 0 {
+        // Child: run the materializer, then exit via _exit so we skip
+        // atexit handlers that the parent (postmaster) may have registered.
+        // We use eprintln to surface errors to the PG log — the child shares
+        // the parent's stderr fd at this point.
+        let code = match ensure_materialized(root) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("[pg_search INSTR-4902] dict materialization (child) failed: {e}");
+                1
+            }
+        };
+        unsafe {
+            libc::_exit(code);
+        }
+    }
+
+    // Parent: wait for the child to complete. The child should be quick
+    // (~1-2 sec total for all three dicts on modern hardware), so a blocking
+    // wait is fine — _PG_init is a one-time cost at postmaster startup.
+    let mut status: libc::c_int = 0;
+    let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+    if waited < 0 {
+        anyhow::bail!(
+            "waitpid for dict materialization subprocess failed: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    if unsafe { libc::WIFSIGNALED(status) } {
+        anyhow::bail!(
+            "dict materialization subprocess killed by signal {}",
+            unsafe { libc::WTERMSIG(status) }
+        );
+    }
+    if !unsafe { libc::WIFEXITED(status) } {
+        anyhow::bail!("dict materialization subprocess terminated abnormally");
+    }
+    let exit_code = unsafe { libc::WEXITSTATUS(status) };
+    if exit_code != 0 {
+        anyhow::bail!("dict materialization subprocess exited with code {exit_code}");
+    }
+    Ok(())
+}
+
+/// Fallback for non-Linux: just call the in-process materializer.
+/// (macOS doesn't have the same fork+postmaster pattern in our test;
+/// production is Linux-only for paradedb CI.)
+#[cfg(not(target_os = "linux"))]
+pub fn ensure_materialized_via_subprocess(root: &Path) -> Result<()> {
+    ensure_materialized(root)
+}
+
 /// mmap-load one of the materialized dicts. Returns a Dictionary whose
 /// internal Data variants are `Data::Map(Arc<Mmap>)` — zero anon-heap cost.
 pub fn load_mmap(root: &Path, lang: &str) -> Result<Arc<Dictionary>> {
