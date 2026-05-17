@@ -23,6 +23,9 @@ debug-logging = [
 ] # enables env_logger for dependency debug output
 
 [dependencies]
+# INSTR-4902: getrusage / getpid for exec.rs + parallel_worker/mod.rs probes.
+# Drop before merge along with the rest of the INSTR-4902 instrumentation.
+libc = "0.2"
 async-trait = "0.1.89"
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }

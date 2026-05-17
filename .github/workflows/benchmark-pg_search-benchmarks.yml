@@ -249,6 +249,12 @@ jobs:
           sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
           sed -i "s/^#max_parallel_maintenance_workers = .*/max_parallel_maintenance_workers = 8/" postgresql.conf
           sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
+          # INSTR-4902: ensure our pgrx::log!() messages land in the server log
+          # (default log_min_messages=warning would still emit LOG-level, but
+          # we set it explicitly + capture client_min_messages=log too).
+          echo "log_min_messages = log"     >> postgresql.conf
+          echo "log_min_duration_statement = 0" >> postgresql.conf
+          echo "log_destination = 'stderr'" >> postgresql.conf
 
       - name: Restart Postgres
         working-directory: pg_search/
@@ -278,9 +284,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "stackoverflow" Dataset (1M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        if: false   # INSTR-4902: skip to keep cycle time short; we only need 100K data
         uses: ./.github/actions/benchmark-queries
         with:
           mode: existing
@@ -294,9 +298,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "stackoverflow" Dataset (20M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        if: false   # INSTR-4902: skip to keep cycle time short
         uses: ./.github/actions/benchmark-queries
         with:
           mode: existing
@@ -310,9 +312,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "docs" Dataset (25M rows)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-docs"]'), github.event.label.name)
+        if: false   # INSTR-4902: skip to keep cycle time short
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: docs

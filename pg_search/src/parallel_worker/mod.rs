@@ -423,6 +423,24 @@ macro_rules! launch_parallel_process {
                 seg: *mut pgrx::pg_sys::dsm_segment,
                 toc: *mut pgrx::pg_sys::shm_toc,
             ) {
+                // ---------- INSTR-4902-WORKER begin ----------
+                let __instr_w_t0 = std::time::Instant::now();
+                let __instr_w_pid = unsafe { libc::getpid() };
+                let __instr_w_ru0 = unsafe {
+                    let mut r: libc::rusage = std::mem::zeroed();
+                    libc::getrusage(libc::RUSAGE_SELF, &mut r);
+                    r
+                };
+                pgrx::log!(
+                    "[INSTR-4902-WORKER] T0_entry pid={} minflt={} majflt={} utime_us={} stime_us={}",
+                    __instr_w_pid,
+                    __instr_w_ru0.ru_minflt,
+                    __instr_w_ru0.ru_majflt,
+                    i128::from(__instr_w_ru0.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru0.ru_utime.tv_usec),
+                    i128::from(__instr_w_ru0.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru0.ru_stime.tv_usec),
+                );
+                // ---------- INSTR-4902-WORKER end ----------
+
                 let (state_manager, mq_sender) =
                     $crate::parallel_worker::generic_parallel_worker_entry_point(
                         seg,
@@ -430,10 +448,65 @@ macro_rules! launch_parallel_process {
                         $mq_size as usize,
                     );
 
-                $crate::parallel_worker::finish_parallel_worker(
-                    <$parallel_worker_type>::new_parallel_worker(state_manager)
-                        .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }),
+                // ---------- INSTR-4902-WORKER T1 ----------
+                let __instr_w_ru1 = unsafe {
+                    let mut r: libc::rusage = std::mem::zeroed();
+                    libc::getrusage(libc::RUSAGE_SELF, &mut r);
+                    r
+                };
+                pgrx::log!(
+                    "[INSTR-4902-WORKER] T1_after_generic_entry pid={} elapsed_us={} minflt_delta={} majflt_delta={} utime_delta_us={} stime_delta_us={}",
+                    __instr_w_pid,
+                    __instr_w_t0.elapsed().as_micros(),
+                    __instr_w_ru1.ru_minflt - __instr_w_ru0.ru_minflt,
+                    __instr_w_ru1.ru_majflt - __instr_w_ru0.ru_majflt,
+                    (i128::from(__instr_w_ru1.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru1.ru_utime.tv_usec))
+                      - (i128::from(__instr_w_ru0.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru0.ru_utime.tv_usec)),
+                    (i128::from(__instr_w_ru1.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru1.ru_stime.tv_usec))
+                      - (i128::from(__instr_w_ru0.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru0.ru_stime.tv_usec)),
                 );
+
+                let __instr_worker_obj = <$parallel_worker_type>::new_parallel_worker(state_manager);
+
+                // ---------- INSTR-4902-WORKER T2 ----------
+                let __instr_w_ru2 = unsafe {
+                    let mut r: libc::rusage = std::mem::zeroed();
+                    libc::getrusage(libc::RUSAGE_SELF, &mut r);
+                    r
+                };
+                pgrx::log!(
+                    "[INSTR-4902-WORKER] T2_after_new_worker pid={} elapsed_us={} minflt_delta={} majflt_delta={} utime_delta_us={} stime_delta_us={}",
+                    __instr_w_pid,
+                    __instr_w_t0.elapsed().as_micros(),
+                    __instr_w_ru2.ru_minflt - __instr_w_ru1.ru_minflt,
+                    __instr_w_ru2.ru_majflt - __instr_w_ru1.ru_majflt,
+                    (i128::from(__instr_w_ru2.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru2.ru_utime.tv_usec))
+                      - (i128::from(__instr_w_ru1.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru1.ru_utime.tv_usec)),
+                    (i128::from(__instr_w_ru2.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru2.ru_stime.tv_usec))
+                      - (i128::from(__instr_w_ru1.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru1.ru_stime.tv_usec)),
+                );
+
+                let __instr_run_result = __instr_worker_obj.run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber });
+
+                // ---------- INSTR-4902-WORKER T3 ----------
+                let __instr_w_ru3 = unsafe {
+                    let mut r: libc::rusage = std::mem::zeroed();
+                    libc::getrusage(libc::RUSAGE_SELF, &mut r);
+                    r
+                };
+                pgrx::log!(
+                    "[INSTR-4902-WORKER] T3_after_run pid={} elapsed_us={} minflt_delta={} majflt_delta={} utime_delta_us={} stime_delta_us={}",
+                    __instr_w_pid,
+                    __instr_w_t0.elapsed().as_micros(),
+                    __instr_w_ru3.ru_minflt - __instr_w_ru2.ru_minflt,
+                    __instr_w_ru3.ru_majflt - __instr_w_ru2.ru_majflt,
+                    (i128::from(__instr_w_ru3.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru3.ru_utime.tv_usec))
+                      - (i128::from(__instr_w_ru2.ru_utime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru2.ru_utime.tv_usec)),
+                    (i128::from(__instr_w_ru3.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru3.ru_stime.tv_usec))
+                      - (i128::from(__instr_w_ru2.ru_stime.tv_sec) * 1_000_000 + i128::from(__instr_w_ru2.ru_stime.tv_usec)),
+                );
+
+                $crate::parallel_worker::finish_parallel_worker(__instr_run_result);
             }
         }
 
