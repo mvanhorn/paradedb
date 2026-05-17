@@ -112,6 +112,28 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::options::init();
     gucs::init();
 
+    // INSTR-4902 fix: materialize lindera dictionaries to disk once, in the
+    // postmaster, so every forked worker can pick them up via mmap (file-backed,
+    // page-cache-shared) rather than inheriting them as anon-heap bytes from
+    // postmaster. Idempotent: re-checks a marker file and short-circuits if
+    // already materialized.
+    //
+    // The materialization step itself briefly allocates the loaded Dictionary
+    // on postmaster's heap. We `drop` it and call `malloc_trim(0)` immediately
+    // afterward, encouraging glibc to release the freed brk/mmap region back
+    // to the kernel before any backend forks. Once that's done, the only
+    // residual state in postmaster is small mmap VMAs pointing at file-backed
+    // pages — those are inherited cheaply and shared physically.
+    let dict_root = tokenizers::lindera_mmap::default_dict_root();
+    if let Err(e) = tokenizers::lindera_mmap::ensure_materialized(&dict_root) {
+        pgrx::warning!(
+            "pg_search: lindera mmap materialization failed at {}: {} — CJK \
+             queries will fall back to per-query dictionary cold-start.",
+            dict_root.display(),
+            e
+        );
+    }
+
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();
 

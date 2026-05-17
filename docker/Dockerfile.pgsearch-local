@@ -1,0 +1,85 @@
+# Dockerfile.pgsearch-local — minimal pg_search + Postgres for local
+# reproduction of paradedb #4902.
+#
+# Builds just pg_search (skips pgvector/pg_cron/pg_ivm), produces an image
+# that runs Postgres 18 with pg_search loaded via shared_preload_libraries
+# and accepts a /repro mount point for SQL fixtures + bench scripts.
+
+ARG PG_VERSION_MAJOR=18
+
+###############################################
+# Builder stage
+###############################################
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
+
+ARG PG_VERSION_MAJOR
+ARG RUST_VERSION=stable
+
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    RUST_VERSION=${RUST_VERSION} \
+    DEBIAN_FRONTEND=noninteractive
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        build-essential \
+        gnupg \
+        curl \
+        git \
+        make \
+        gcc \
+        clang \
+        pkg-config \
+        libopenblas-dev \
+        postgresql-server-dev-all \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
+ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
+    PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
+
+# Install cargo-pgrx pinned to the version paradedb uses.
+COPY Cargo.toml /tmp/
+WORKDIR /tmp/
+RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
+    echo "PGRX_VERSION=$PGRX_VERSION" && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# Build pg_search
+COPY . /tmp/
+WORKDIR /tmp/pg_search
+RUN cargo pgrx package --profile=release --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+###############################################
+# Runtime stage
+###############################################
+FROM postgres:${PG_VERSION_MAJOR}-trixie
+
+ARG PG_VERSION_MAJOR
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
+
+# Install perf + psutil (for repro scripts), plus any other things we use.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        linux-perf \
+        python3 \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built pg_search artifacts into the postgres install
+COPY --from=builder /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so \
+        /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/ \
+        /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+
+# Default postgres config: load pg_search.
+RUN echo "shared_preload_libraries = 'pg_search'" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "max_parallel_workers = 8" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "max_worker_processes = 8" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "max_parallel_workers_per_gather = 8" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "log_min_messages = log" >> /usr/share/postgresql/postgresql.conf.sample
+
+ENV POSTGRES_HOST_AUTH_METHOD=trust \
+    POSTGRES_USER=postgres \
+    POSTGRES_DB=postgres
