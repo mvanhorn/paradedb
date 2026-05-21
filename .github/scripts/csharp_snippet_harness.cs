@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore;
 using ParadeDB.EntityFrameworkCore.Extensions;
 
 var connectionString =

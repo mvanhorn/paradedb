@@ -90,6 +90,24 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchDisjunction(item.Description, "shoes", Pdb.Boost(2))
+        || EF.Functions.MatchDisjunction(item.Category, "footwear")
+    )
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -237,6 +255,23 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchDisjunction(item.Description, "shose", Pdb.Fuzzy(2), Pdb.Boost(2))
+    )
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Category,
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Constant Scoring
@@ -310,6 +345,21 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes", Pdb.Const(1)))
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

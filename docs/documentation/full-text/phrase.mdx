@@ -67,6 +67,13 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.Phrase(item.Description, "running shoes"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 This query returns:
@@ -160,6 +167,13 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase("shoes running", slop: 2)
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.Phrase(item.Description, "shoes running", Pdb.Slop(2)))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -276,6 +290,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(item.Description, new[] { "running", "shoes" })
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -326,6 +349,15 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase(%w[shoes running], slop: 2)
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(item.Description, new[] { "shoes", "running" }, Pdb.Slop(2))
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

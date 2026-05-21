@@ -146,6 +146,30 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var fuzzyOrRows = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchDisjunction(item.Description, "runing shose", Pdb.Fuzzy(2))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+
+var fuzzyAndRows = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchConjunction(item.Description, "runing shose", Pdb.Fuzzy(2))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+
+var fuzzyTermRows = await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, "shose", Pdb.Fuzzy(2)))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -221,6 +245,14 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, "rann", Pdb.Fuzzy(1, true)))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <Note>
@@ -281,6 +313,16 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchConjunction(item.Description, "slee rann", Pdb.Fuzzy(1, true))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -337,6 +379,16 @@ MockItem.search(:description)
         .term("shose", distance: 1, transposition_cost_one: true)
         .select(:id, :description)
         .limit(5)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, "shose", Pdb.Fuzzy(1, false, true))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

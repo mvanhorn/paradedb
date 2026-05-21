@@ -74,6 +74,14 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes"))
+    .Select(item => new { item.Id, Snippet = EF.Functions.Snippet(item.Description) })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <ParamField body="start_tag" default="<b>">
@@ -151,6 +159,18 @@ MockItem.search(:description)
         .with_snippet(:description, start_tag: "<i>", end_tag: "</i>")
         .select(:id)
         .limit(5)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes"))
+    .Select(item => new
+    {
+        item.Id,
+        Snippet = EF.Functions.Snippet(item.Description, "<i>", "</i>")
+    })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
