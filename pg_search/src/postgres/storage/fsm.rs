@@ -993,27 +993,72 @@ pub mod v2 {
             // find the starting block of the associated freelist while holding (at least) a share
             // lock on the root page of the tree.  This ensures a concurrent drain that could be
             // happening on the provided `when_recyclable` transaction id can't unlink its head block
-            // which would change the block we'd get here
-            let start_block = {
+            // which would change the block we'd get here.
+            //
+            // We use a bounded-retry conditional acquire to upgrade the root SHARE -> EX, instead
+            // of the unconditional `Buffer::upgrade` which calls `LockBuffer(EX)`. PG LWLockAcquire
+            // is uninterruptible while parked on the semaphore, so a leaked SHARE on the FSM root
+            // (observed in prod) would hang every parallel worker indefinitely with no recovery.
+            // Bounded retry converts that hang into an ERROR after ~30s, which triggers PG's
+            // error cleanup (LWLockReleaseAll), unwedges any locks this backend itself leaked,
+            // and lets the user see a real failure.
+            const FSM_ROOT_UPGRADE_MAX_RETRIES: u32 = 300;
+            const FSM_ROOT_UPGRADE_SLEEP_US: ::core::ffi::c_long = 100_000;
+
+            let mut upgrade_retries: u32 = 0;
+            let start_block = loop {
                 let root = bman.get_buffer(self.start_blockno);
-                let page = root.page();
-                let tree = self.avl_ref(&page);
 
-                match tree.get(&when_recyclable.value) {
+                // Look up the slot under the SHARE lock; drop the tree/page borrows
+                // before doing anything that might move `root`.
+                let lookup = {
+                    let page = root.page();
+                    let tree = self.avl_ref(&page);
+                    tree.get(&when_recyclable.value).map(|(_, tag)| tag)
+                };
+
+                match lookup {
+                    Some(tag) => {
+                        // Slot already exists: acquire the leaf while still holding root SHARE
+                        // so a concurrent drain can't unlink the head between our read and lock.
+                        break bman.get_buffer_mut(tag as pg_sys::BlockNumber);
+                    }
                     None => {
-                        let mut root = root.upgrade(bman);
-                        let mut page = root.page_mut();
-                        let mut tree = self.avl_mut(&mut page);
+                        // Need to upgrade root SHARE -> EX to insert a new slot. Non-blocking.
+                        match root.upgrade_conditional(bman) {
+                            Some(mut root_ex) => {
+                                let mut page = root_ex.page_mut();
+                                let mut tree = self.avl_mut(&mut page);
 
-                        match tree.insert(when_recyclable.value, ()) {
-                            Ok((_, tag)) => bman.get_buffer_mut(tag as pg_sys::BlockNumber),
-                            Err(Error::Full) => {
-                                let tag = self.handle_full_tree(root, when_recyclable);
-                                bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                match tree.insert(when_recyclable.value, ()) {
+                                    Ok((_, tag)) => {
+                                        break bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                    }
+                                    Err(Error::Full) => {
+                                        let tag = self.handle_full_tree(root_ex, when_recyclable);
+                                        break bman.get_buffer_mut(tag as pg_sys::BlockNumber);
+                                    }
+                                }
+                            }
+                            None => {
+                                upgrade_retries += 1;
+                                if upgrade_retries >= FSM_ROOT_UPGRADE_MAX_RETRIES {
+                                    pgrx::error!(
+                                        "FSM root EXCLUSIVE lock acquisition timed out after {} retries (~{} ms) on block {}; \
+                                         another backend is likely holding a leaked SHARE lock on the FSM root — aborting so cleanup runs",
+                                        upgrade_retries,
+                                        (upgrade_retries as i64) * (FSM_ROOT_UPGRADE_SLEEP_US / 1000),
+                                        self.start_blockno
+                                    );
+                                }
+                                unsafe {
+                                    pg_sys::pg_usleep(FSM_ROOT_UPGRADE_SLEEP_US);
+                                }
+                                pgrx::check_for_interrupts!();
+                                continue;
                             }
                         }
                     }
-                    Some((_, tag)) => bman.get_buffer_mut(tag as pg_sys::BlockNumber),
                 }
             };
 
