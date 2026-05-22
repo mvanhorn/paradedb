@@ -71,7 +71,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes"))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
     .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
     .OrderByDescending(item => item.Score)
     .Take(5)
@@ -152,7 +152,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "keyboard") || item.Rating < 2
+        EF.Functions.MatchAny(item.Description, "keyboard") || item.Rating < 2
     )
     .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
     .OrderByDescending(item => item.Score)

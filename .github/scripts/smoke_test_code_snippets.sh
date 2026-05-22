@@ -285,7 +285,7 @@ if [[ $LANGUAGES =~ "csharp" ]]; then
   echo "Referencing local ParadeDB.EntityFrameworkCore..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" reference \
-    "${EFCORE_PARADEDB_DIR}/src/ParadeDB.EntityFrameworkCore/ParadeDB.EntityFrameworkCore.csproj" \
+    "${EFCORE_PARADEDB_DIR}/src/ParadeDB.EntityFrameworkCore.csproj" \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

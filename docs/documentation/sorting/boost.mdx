@@ -93,8 +93,8 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "shoes", Pdb.Boost(2))
-        || EF.Functions.MatchDisjunction(item.Category, "footwear")
+        EF.Functions.MatchAny(item.Description, Pdb.Boost("shoes", 2))
+        || EF.Functions.MatchAny(item.Category, "footwear")
     )
     .Select(item => new
     {
@@ -258,7 +258,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "shose", Pdb.Fuzzy(2), Pdb.Boost(2))
+        EF.Functions.MatchAny(item.Description, Pdb.Boost(Pdb.Fuzzy("shose", 2), 2))
     )
     .Select(item => new
     {
@@ -349,7 +349,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes", Pdb.Const(1)))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, Pdb.Const("shoes", 1)))
     .Select(item => new
     {
         item.Id,

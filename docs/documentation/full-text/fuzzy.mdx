@@ -149,7 +149,7 @@ MockItem.search(:description)
 ```cs EF Core
 var fuzzyOrRows = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "runing shose", Pdb.Fuzzy(2))
+        EF.Functions.MatchAny(item.Description, Pdb.Fuzzy("runing shose", 2))
     )
     .Select(item => new { item.Id, item.Description })
     .Take(5)
@@ -157,14 +157,14 @@ var fuzzyOrRows = await dbContext
 
 var fuzzyAndRows = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchConjunction(item.Description, "runing shose", Pdb.Fuzzy(2))
+        EF.Functions.MatchAll(item.Description, Pdb.Fuzzy("runing shose", 2))
     )
     .Select(item => new { item.Id, item.Description })
     .Take(5)
     .ToListAsync();
 
 var fuzzyTermRows = await dbContext
-    .MockItems.Where(item => EF.Functions.Term(item.Description, "shose", Pdb.Fuzzy(2)))
+    .MockItems.Where(item => EF.Functions.Term(item.Description, Pdb.Fuzzy("shose", 2)))
     .Select(item => new { item.Id, item.Description })
     .Take(5)
     .ToListAsync();
@@ -247,7 +247,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.Term(item.Description, "rann", Pdb.Fuzzy(1, true)))
+    .MockItems.Where(item => EF.Functions.Term(item.Description, Pdb.Fuzzy("rann", 1, true)))
     .Select(item => new { item.Id, item.Description })
     .Take(5)
     .ToListAsync();
@@ -316,7 +316,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchConjunction(item.Description, "slee rann", Pdb.Fuzzy(1, true))
+        EF.Functions.MatchAll(item.Description, Pdb.Fuzzy("slee rann", 1, true))
     )
     .Select(item => new { item.Id, item.Description })
     .Take(5)
@@ -384,7 +384,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.Term(item.Description, "shose", Pdb.Fuzzy(1, false, true))
+        EF.Functions.Term(item.Description, Pdb.Fuzzy("shose", 1, false, true))
     )
     .Select(item => new { item.Id, item.Description })
     .Take(5)

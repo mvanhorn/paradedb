@@ -76,7 +76,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes"))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
     .Select(item => new { item.Id, Snippet = EF.Functions.Snippet(item.Description) })
     .Take(5)
     .ToListAsync();
@@ -163,7 +163,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "shoes"))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
     .Select(item => new
     {
         item.Id,

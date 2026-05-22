@@ -77,7 +77,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "running shoes") && item.Rating > 2
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
     )
     .OrderBy(item => item.Rating)
     .Select(item => new { item.Description, item.Rating, item.Category })
@@ -168,7 +168,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchConjunction(item.Description, "running shoes") && item.Rating > 2
+        EF.Functions.MatchAll(item.Description, "running shoes") && item.Rating > 2
     )
     .OrderBy(item => item.Rating)
     .Select(item => new { item.Description, item.Rating, item.Category })
@@ -258,7 +258,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "running shoes") && item.Rating > 2
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
     )
     .Select(item => new { item.Description, Score = EF.Functions.Score(item.Id) })
     .OrderByDescending(item => item.Score)
@@ -358,7 +358,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "running shoes") && item.Rating > 2
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
     )
     .Select(item => new
     {
@@ -444,7 +444,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchDisjunction(item.Description, "running shoes"))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
     .OrderBy(item => item.Rating)
     .Select(item => new { item.Description, item.Rating, item.Category })
     .Take(5)

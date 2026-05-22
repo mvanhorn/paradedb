@@ -171,7 +171,7 @@ MockItem.search(:description)
 
 ```cs EF Core
 var results = await dbContext
-    .MockItems.Where(item => EF.Functions.Phrase(item.Description, "shoes running", Pdb.Slop(2)))
+    .MockItems.Where(item => EF.Functions.Phrase(item.Description, Pdb.Slop("shoes running", 2)))
     .Select(item => new { item.Description, item.Rating, item.Category })
     .ToListAsync();
 ```
@@ -233,6 +233,18 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase("running shoes", tokenizer: Tokenizer.whitespace())
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(
+            item.Description,
+            EF.Functions.Tokenize("running shoes", Tokenizer.Whitespace())
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -354,7 +366,7 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.Phrase(item.Description, new[] { "shoes", "running" }, Pdb.Slop(2))
+        EF.Functions.Phrase(item.Description, Pdb.Slop(new[] { "shoes", "running" }, 2))
     )
     .Select(item => new { item.Description, item.Rating, item.Category })
     .ToListAsync();

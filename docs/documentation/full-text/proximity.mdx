@@ -137,7 +137,10 @@ MockItem.search(:description)
 ```cs EF Core
 var results = await dbContext
     .MockItems.Where(item =>
-        EF.Functions.Match(item.Description, Pdb.Proximity("sleek").WithinOrdered(1, "shoes"))
+        EF.Functions.Match(
+            item.Description,
+            Pdb.Proximity("sleek").Within(1, "shoes", ordered: true)
+        )
     )
     .Select(item => new { item.Description, item.Rating, item.Category })
     .ToListAsync();
