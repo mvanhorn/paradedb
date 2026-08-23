@@ -71,6 +71,7 @@ use crate::postgres::customscan::parallel::{
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
+    pullout_funcexprs_from_pathkeys,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
@@ -1200,6 +1201,35 @@ impl CustomScan for BaseScan {
                     // entries in the `attname_lookup` List
                     attname_lookup.insert((rti as Varno, (*var).varattno), attname);
                 }
+            }
+
+            // Join and semi-join planning can retain an ORDER BY score only as a
+            // PlaceHolderVar in a pathkey equivalence member.  Such an expression is absent
+            // from processed_tlist, so copy it into the scan target list before setrefs
+            // finalizes the upper sort/result nodes.  The helper keeps the same relation-level
+            // ownership check as the processed_tlist traversal above.
+            let pathkey_func_vars = pullout_funcexprs_from_pathkeys(
+                builder.args().best_path as *mut pg_sys::Path,
+                &funcoids,
+                rti,
+                builder.args().root,
+            );
+            for (funcexpr, var, attname) in pathkey_func_vars {
+                if !tlist.is_empty() {
+                    let already_present =
+                        !pg_sys::tlist_member(funcexpr.cast(), tlist.as_ptr()).is_null();
+                    if !already_present {
+                        let te = pg_sys::makeTargetEntry(
+                            pg_sys::copyObjectImpl(funcexpr.cast()).cast(),
+                            (tlist.len() + 1) as _,
+                            std::ptr::null_mut(),
+                            true,
+                        );
+                        tlist.push(te);
+                    }
+                }
+
+                attname_lookup.insert((rti as Varno, (*var).varattno), attname);
             }
 
             // Extract join-level snippet predicates for this relation

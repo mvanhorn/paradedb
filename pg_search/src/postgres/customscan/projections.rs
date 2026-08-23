@@ -488,6 +488,63 @@ pub unsafe fn pullout_funcexprs(
     data.matches
 }
 
+/// Find function expressions required by the query or chosen path ordering.
+///
+/// PostgreSQL does not always retain an `ORDER BY` expression in
+/// `PlannerInfo::processed_tlist`.  In particular, join and semi-join planning can leave a
+/// score expression only as a [`pg_sys::PlaceHolderVar`] in a pathkey's equivalence class.  Walk
+/// every equivalence member so the owning base scan can still project that score for upper plan
+/// nodes to consume.
+///
+/// Relation ownership is delegated to [`pullout_funcexprs`], which only returns functions whose
+/// argument resolves to `rti` (or its partition parent).
+pub unsafe fn pullout_funcexprs_from_pathkeys(
+    best_path: *mut pg_sys::Path,
+    funcids: &[pg_sys::Oid],
+    rti: i32,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
+    let mut matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> = Vec::new();
+
+    let best_pathkeys = if best_path.is_null() {
+        std::ptr::null_mut()
+    } else {
+        (*best_path).pathkeys
+    };
+    let pathkey_lists = [(*root).query_pathkeys, best_pathkeys];
+    let mut visited_eclasses = Vec::new();
+
+    for (list_index, pathkeys_ptr) in pathkey_lists.iter().copied().enumerate() {
+        if pathkeys_ptr.is_null() || (list_index == 1 && pathkeys_ptr == pathkey_lists[0]) {
+            continue;
+        }
+
+        let pathkeys = PgList::<pg_sys::PathKey>::from_pg(pathkeys_ptr);
+        for pathkey in pathkeys.iter_ptr() {
+            let equivalence_class = (*pathkey).pk_eclass;
+            if equivalence_class.is_null() || visited_eclasses.contains(&equivalence_class) {
+                continue;
+            }
+            visited_eclasses.push(equivalence_class);
+
+            let members =
+                PgList::<pg_sys::EquivalenceMember>::from_pg((*equivalence_class).ec_members);
+            for member in members.iter_ptr() {
+                for matched in pullout_funcexprs((*member).em_expr.cast(), funcids, rti, root) {
+                    let already_present = matches.iter().any(|(funcexpr, _, _)| {
+                        pg_sys::equal((*funcexpr).cast(), matched.0.cast())
+                    });
+                    if !already_present {
+                        matches.push(matched);
+                    }
+                }
+            }
+        }
+    }
+
+    matches
+}
+
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 pub unsafe fn inject_placeholders(
